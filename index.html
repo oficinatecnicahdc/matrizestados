@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rastreador de Fichas de Taller</title>
+    <!-- Carga de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Fuente Inter para la UI */
+        body { font-family: 'Inter', sans-serif; background-color: #f7f7f7; }
+        /* Animación de carga */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="min-h-screen p-4 sm:p-8 flex items-start justify-center">
+        <div class="w-full max-w-2xl bg-white shadow-xl rounded-xl p-6 sm:p-8">
+            <header class="mb-6">
+                <h1 class="text-3xl font-extrabold text-blue-700 mb-1">Estado de Ficha de Taller</h1>
+                <p class="text-gray-500">Consulta el estado de tu pedido ingresando el número de ficha.</p>
+                <div id="status-message" class="mt-2 text-sm text-red-500 font-medium hidden"></div>
+            </header>
+
+            <!-- Campo de Búsqueda -->
+            <div class="mb-6">
+                <label for="fichaNumber" class="block text-sm font-medium text-gray-700 mb-2">Número de Ficha (N° de Ficha):</label>
+                <div class="flex space-x-3">
+                    <input type="number" id="fichaNumber" placeholder="Ej: 11357"
+                           class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
+                    <button id="searchButton" onclick="searchFicha()"
+                            class="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition duration-150 ease-in-out font-semibold shadow-md active:bg-blue-800 flex items-center justify-center disabled:opacity-50"
+                            disabled>
+                        <span id="buttonText">Buscar</span>
+                        <div id="loader" class="spinner ml-2 hidden"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Panel de Resultados -->
+            <div id="resultsPanel" class="border border-blue-200 rounded-xl p-5 sm:p-6 bg-blue-50/50 hidden">
+                <h2 class="text-xl font-bold text-blue-600 mb-4 flex items-center">
+                    Resultado de Búsqueda para Ficha: <span id="fichaResult" class="ml-2 bg-blue-100 px-3 py-1 rounded-full text-blue-800 text-xl"></span>
+                </h2>
+
+                <!-- Estado Actual -->
+                <div class="mb-4">
+                    <p class="text-sm font-medium text-gray-700">Estado Actual:</p>
+                    <p id="currentStatus" class="text-2xl font-extrabold text-green-700 mt-1"></p>
+                </div>
+
+                <!-- Historial de Etapas -->
+                <div>
+                    <p class="text-sm font-medium text-gray-700 mb-3">Historial de Etapas:</p>
+                    <ul id="stageHistory" class="space-y-3">
+                        <!-- Los resultados se inyectarán aquí -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Mensaje de No Encontrado -->
+            <div id="notFoundMessage" class="hidden bg-red-100 border border-red-300 text-red-700 p-4 rounded-lg mt-4" role="alert">
+                <p class="font-bold">Ficha no encontrada</p>
+                <p>El número de ficha ingresado no se encuentra en el registro.</p>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // URL pública de la hoja de Google Sheets en formato CSV.
+        // ES CRÍTICO que esta URL se genere a través de: Archivo -> Compartir -> Publicar en la web -> CSV.
+        const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vREZwLQ55f-p1OoNtuD_IJe8FUFwcosDSeQmgR4otxz1xEpEC7m8jUfgyxtGsDTiz3vu4GfCiJt8MVk/pub?gid=719712254&single=true&output=csv';
+
+        // Elementos del DOM
+        const inputFicha = document.getElementById('fichaNumber');
+        const searchBtn = document.getElementById('searchButton');
+        const loader = document.getElementById('loader');
+        const buttonText = document.getElementById('buttonText');
+        const resultsPanel = document.getElementById('resultsPanel');
+        const notFoundMessage = document.getElementById('notFoundMessage');
+        const statusMessage = document.getElementById('status-message');
+
+        let data = [];
+        let headers = [];
+
+        // Clave estandarizada para la búsqueda.
+        const FICHA_KEY = 'N de Ficha';
+        // Nombres de las columnas de etapas
+        const STAGE_COLUMNS = [
+            "Ingreso",
+            "Desarme",
+            "Cotización",
+            "Armado",
+            "Prueba producto OK",
+            "Control de producto OK",
+            "En entrega",
+            "Entregado",
+            "Estado" // El estado final es la columna 'Estado'
+        ];
+
+        /**
+         * Inicializa la aplicación, descarga los datos y habilita el botón de búsqueda.
+         */
+        async function initializeApp() {
+            try {
+                showLoading(true, "Cargando datos...");
+                const response = await fetch(GOOGLE_SHEET_URL);
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                const csvText = await response.text();
+                
+                // Quitamos la comprobación de HTML estricta, pero confiamos en que
+                // parseCSV fallará si el contenido no es un CSV válido.
+                
+                parseCSV(csvText);
+
+                // Habilitar el botón después de cargar los datos
+                if (data.length > 0) {
+                    searchBtn.disabled = false;
+                    showLoading(false, "Datos cargados correctamente.");
+                    statusMessage.classList.add('text-green-500');
+                    statusMessage.classList.remove('text-red-500', 'hidden');
+
+                    // Ocultar el mensaje después de un tiempo
+                    setTimeout(() => {
+                        statusMessage.classList.add('hidden');
+                    }, 3000);
+                } else {
+                    // Si parseCSV no encontró datos válidos (posiblemente por recibir HTML/Error)
+                    throw new Error('No se encontraron datos válidos. Revisa la configuración de "Publicar en la web" de tu hoja de Google Sheets.');
+                }
+
+
+            } catch (error) {
+                console.error("Error al cargar los datos de Google Sheets:", error);
+                // Si el error es el de la URL, damos un mensaje más útil
+                const displayMessage = error.message.includes('El enlace no está devolviendo') || error.message.includes('No se encontraron datos válidos')
+                    ? `Error de carga: ${error.message}. Confirma que el documento está 'Publicado en la web' como CSV.`
+                    : `Error: No se pudieron cargar los datos. (${error.message})`;
+
+                showLoading(false, displayMessage);
+                statusMessage.classList.add('text-red-500');
+                statusMessage.classList.remove('text-green-500', 'hidden');
+            }
+        }
+
+        /**
+         * Muestra/oculta el estado de carga y actualiza el mensaje de estado.
+         * @param {boolean} isLoading - Indica si se está cargando o no.
+         * @param {string} message - Mensaje a mostrar.
+         */
+        function showLoading(isLoading, message) {
+            statusMessage.textContent = message;
+            if (isLoading) {
+                loader.classList.remove('hidden');
+                buttonText.textContent = 'Cargando...';
+                searchBtn.disabled = true;
+                statusMessage.classList.remove('hidden');
+            } else {
+                loader.classList.add('hidden');
+                buttonText.textContent = 'Buscar';
+                searchBtn.disabled = data.length === 0; // Solo habilitar si hay datos
+            }
+        }
+
+        /**
+         * Parsea el texto CSV en un arreglo de objetos de manera robusta.
+         * La Columna A (Index 0) se asume como el Número de Ficha, sin importar su encabezado.
+         * @param {string} csvText - El contenido CSV como texto.
+         */
+        function parseCSV(csvText) {
+            // Dividir por línea y filtrar líneas vacías
+            const lines = csvText.split('\n').filter(line => line.trim() !== '');
+            if (lines.length < 2) return; // Necesita encabezado y al menos una fila de datos
+
+            // 1. Limpieza de encabezados: se divide por coma y se limpian caracteres extraños.
+            headers = lines[0].split(',').map(h => h.trim().replace(/['"\r]/g, ''));
+            data = [];
+
+            // La clave de la Ficha siempre es la Columna 0
+            const FICHA_INDEX = 0; 
+            
+            // Procesar las líneas de datos (a partir de la línea 1)
+            for (let i = 1; i < lines.length; i++) {
+                // Split simple por coma y limpieza de cada valor.
+                const values = lines[i].split(',').map(v => v.trim().replace(/['"\r]/g, ''));
+
+                if (values.length > FICHA_INDEX) { 
+                    let row = {};
+                    
+                    // 1. Obtener y limpiar el valor de la ficha (Columna A, Index 0)
+                    const fichaValue = values[FICHA_INDEX] || null;
+                    
+                    if (fichaValue) {
+                        // Almacenar el valor de la ficha bajo el nombre estandarizado 'N de Ficha'
+                        row[FICHA_KEY] = fichaValue;
+                        
+                        // 2. Asignar los demás valores a las claves del encabezado
+                        for (let j = 0; j < headers.length; j++) {
+                            const cleanHeader = headers[j];
+                            // Asegurarse de que el encabezado no esté vacío y que exista un valor para esa columna
+                            if (cleanHeader && j < values.length) {
+                                // Usar el valor limpio de la celda
+                                row[cleanHeader] = values[j]; 
+                            }
+                        }
+                        
+                        data.push(row);
+                    } else {
+                         // Saltar filas sin número de ficha
+                         continue; 
+                    }
+                }
+            }
+        }
+
+        /**
+         * Busca la ficha ingresada y muestra los resultados.
+         */
+        function searchFicha() {
+            // Limpiar resultados anteriores
+            resultsPanel.classList.add('hidden');
+            notFoundMessage.classList.add('hidden');
+            statusMessage.classList.add('hidden');
+
+            // 1. Limpiar el input para asegurar que no haya espacios
+            const fichaNum = inputFicha.value.trim();
+            if (!fichaNum) {
+                showResultFeedback("Por favor, ingresa un número de ficha.", 'red');
+                return;
+            }
+
+            // 2. Búsqueda: compara la cadena limpia con el valor almacenado limpio.
+            // Usa la clave estandarizada FICHA_KEY.
+            const row = data.find(item => item[FICHA_KEY] === fichaNum);
+
+            if (row) {
+                displayResults(fichaNum, row);
+            } else {
+                notFoundMessage.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * Muestra la retroalimentación del resultado.
+         * @param {string} message - Mensaje a mostrar.
+         * @param {'green'|'red'|'blue'} type - Tipo de mensaje para el color.
+         */
+        function showResultFeedback(message, type) {
+            statusMessage.textContent = message;
+            statusMessage.classList.remove('text-green-500', 'text-red-500', 'text-blue-500', 'hidden');
+            statusMessage.classList.add(`text-${type}-500`);
+            statusMessage.classList.remove('hidden');
+        }
+
+        /**
+         * Renderiza los resultados en el panel.
+         * @param {string} fichaNum - Número de ficha buscado.
+         * @param {Object} row - El objeto de datos de la ficha.
+         */
+        function displayResults(fichaNum, row) {
+            document.getElementById('fichaResult').textContent = fichaNum;
+            // Usamos la columna 'Estado' para el estado actual
+            document.getElementById('currentStatus').textContent = row['Estado'] || 'Desconocido';
+
+            const historyList = document.getElementById('stageHistory');
+            historyList.innerHTML = ''; // Limpiar lista
+
+            let isCurrentStage = false;
+
+            // Recorrer las columnas de etapas (excluyendo la última 'Estado' de la lista de STAGE_COLUMNS para la iteración)
+            // Se itera sobre las primeras 8 etapas que tienen marca 'X'
+            const PROCESS_STAGES = STAGE_COLUMNS.slice(0, 8); 
+
+            for (let i = 0; i < PROCESS_STAGES.length; i++) {
+                const stageName = PROCESS_STAGES[i];
+                const stageValue = row[stageName];
+                let icon = '';
+                let textClass = 'text-gray-500';
+                
+                // 1. Etapa COMPLETADA (tiene 'X')
+                if (stageValue && stageValue.trim().toUpperCase() === 'X') {
+                    icon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>';
+                    textClass = 'text-green-700 font-medium';
+                } 
+                // 2. Etapa ACTUAL EN PROCESO (No tiene 'X' pero el nombre de la etapa coincide con el valor de la columna 'Estado')
+                else if (!isCurrentStage && (row['Estado'] === stageName || row['Estado'] === stageName.trim())) {
+                    icon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>';
+                    textClass = 'text-yellow-700 font-semibold';
+                    isCurrentStage = true; // Marcar que ya encontramos la etapa actual.
+                } 
+                // 3. Etapa PENDIENTE
+                else {
+                    icon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" /></svg>';
+                    textClass = 'text-gray-500';
+                }
+
+                const listItem = document.createElement('li');
+                listItem.className = 'flex items-center space-x-2 p-2 bg-white rounded-md shadow-sm';
+                listItem.innerHTML = `${icon}<span class="${textClass}">${stageName}</span>`;
+                historyList.appendChild(listItem);
+            }
+
+            // Mostrar el panel de resultados
+            resultsPanel.classList.remove('hidden');
+        }
+
+        // Ejecutar la inicialización al cargar la página
+        window.onload = initializeApp;
+
+        // Permitir búsqueda al presionar Enter
+        inputFicha.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchFicha();
+            }
+        });
+    </script>
+</body>
+</html>
