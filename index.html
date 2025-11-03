@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -37,7 +38,7 @@
             <div class="mb-6">
                 <label for="fichaNumber" class="block text-sm font-medium text-gray-700 mb-2">Número de Ficha (N° de Ficha):</label>
                 <div class="flex space-x-3">
-                    <input type="number" id="fichaNumber" placeholder="Ej: 11357"
+                    <input type="number" id="fichaNumber" placeholder="Ej: 12250"
                            class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
                     <button id="searchButton" onclick="searchFicha()"
                             class="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition duration-150 ease-in-out font-semibold shadow-md active:bg-blue-800 flex items-center justify-center disabled:opacity-50"
@@ -54,19 +55,19 @@
                     Resultado de Búsqueda para Ficha: <span id="fichaResult" class="ml-2 bg-blue-100 px-3 py-1 rounded-full text-blue-800 text-xl"></span>
                 </h2>
 
-                <!-- Estado Actual -->
+                <!-- Estado Actual: (Negro Fuerte) -->
                 <div class="mb-4">
                     <p class="text-sm font-medium text-gray-700">Estado Actual:</p>
-                    <p id="currentStatus" class="text-2xl font-extrabold text-green-700 mt-1"></p>
+                    <p id="currentStatus" class="text-2xl font-extrabold text-gray-900 mt-1"></p>
                 </div>
 
-                <!-- Historial de Etapas -->
+                <!-- Historial de Etapas (ELIMINADO)
                 <div>
                     <p class="text-sm font-medium text-gray-700 mb-3">Historial de Etapas:</p>
                     <ul id="stageHistory" class="space-y-3">
-                        <!-- Los resultados se inyectarán aquí -->
                     </ul>
                 </div>
+                -->
             </div>
 
             <!-- Mensaje de No Encontrado -->
@@ -97,18 +98,25 @@
 
         // Clave estandarizada para la búsqueda.
         const FICHA_KEY = 'N de Ficha';
-        // Nombres de las columnas de etapas
+        
+        // Nombres de las columnas de etapas (Se mantiene la lista solo para referencia, aunque ya no se usa para historial)
         const STAGE_COLUMNS = [
             "Ingreso",
             "Desarme",
             "Cotización",
-            "Armado",
-            "Prueba producto OK",
-            "Control de producto OK",
-            "En entrega",
+            "Confirmado",
+            "En proceso de Armado",
+            "Armado listo",
+            "Probado o OK",
+            "Probado vuelve al taller",
+            "Listo para entregar",
             "Entregado",
-            "Estado" // El estado final es la columna 'Estado'
+            "Estado" // La columna clave para el estado actual
         ];
+        
+        // Lista de etapas reales que deben aparecer en el historial (excluyendo "Estado")
+        const PROCESS_STAGES = STAGE_COLUMNS.slice(0, STAGE_COLUMNS.length - 1); 
+
 
         /**
          * Inicializa la aplicación, descarga los datos y habilita el botón de búsqueda.
@@ -121,9 +129,6 @@
                     throw new Error(`Error HTTP: ${response.status}`);
                 }
                 const csvText = await response.text();
-                
-                // Quitamos la comprobación de HTML estricta, pero confiamos en que
-                // parseCSV fallará si el contenido no es un CSV válido.
                 
                 parseCSV(csvText);
 
@@ -139,15 +144,15 @@
                         statusMessage.classList.add('hidden');
                     }, 3000);
                 } else {
-                    // Si parseCSV no encontró datos válidos (posiblemente por recibir HTML/Error)
-                    throw new Error('No se encontraron datos válidos. Revisa la configuración de "Publicar en la web" de tu hoja de Google Sheets.');
+                    // Si parseCSV no encontró datos válidos 
+                    throw new Error('No se encontraron datos válidos. Confirma que el documento está "Publicado en la web" como CSV y tiene contenido.');
                 }
 
 
             } catch (error) {
                 console.error("Error al cargar los datos de Google Sheets:", error);
-                // Si el error es el de la URL, damos un mensaje más útil
-                const displayMessage = error.message.includes('El enlace no está devolviendo') || error.message.includes('No se encontraron datos válidos')
+                
+                const displayMessage = error.message.includes('No se encontraron datos válidos')
                     ? `Error de carga: ${error.message}. Confirma que el documento está 'Publicado en la web' como CSV.`
                     : `Error: No se pudieron cargar los datos. (${error.message})`;
 
@@ -276,43 +281,7 @@
             // Usamos la columna 'Estado' para el estado actual
             document.getElementById('currentStatus').textContent = row['Estado'] || 'Desconocido';
 
-            const historyList = document.getElementById('stageHistory');
-            historyList.innerHTML = ''; // Limpiar lista
-
-            let isCurrentStage = false;
-
-            // Recorrer las columnas de etapas (excluyendo la última 'Estado' de la lista de STAGE_COLUMNS para la iteración)
-            // Se itera sobre las primeras 8 etapas que tienen marca 'X'
-            const PROCESS_STAGES = STAGE_COLUMNS.slice(0, 8); 
-
-            for (let i = 0; i < PROCESS_STAGES.length; i++) {
-                const stageName = PROCESS_STAGES[i];
-                const stageValue = row[stageName];
-                let icon = '';
-                let textClass = 'text-gray-500';
-                
-                // 1. Etapa COMPLETADA (tiene 'X')
-                if (stageValue && stageValue.trim().toUpperCase() === 'X') {
-                    icon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>';
-                    textClass = 'text-green-700 font-medium';
-                } 
-                // 2. Etapa ACTUAL EN PROCESO (No tiene 'X' pero el nombre de la etapa coincide con el valor de la columna 'Estado')
-                else if (!isCurrentStage && (row['Estado'] === stageName || row['Estado'] === stageName.trim())) {
-                    icon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>';
-                    textClass = 'text-yellow-700 font-semibold';
-                    isCurrentStage = true; // Marcar que ya encontramos la etapa actual.
-                } 
-                // 3. Etapa PENDIENTE
-                else {
-                    icon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" /></svg>';
-                    textClass = 'text-gray-500';
-                }
-
-                const listItem = document.createElement('li');
-                listItem.className = 'flex items-center space-x-2 p-2 bg-white rounded-md shadow-sm';
-                listItem.innerHTML = `${icon}<span class="${textClass}">${stageName}</span>`;
-                historyList.appendChild(listItem);
-            }
+            // Ya no necesitamos inyectar elementos en stageHistory
 
             // Mostrar el panel de resultados
             resultsPanel.classList.remove('hidden');
