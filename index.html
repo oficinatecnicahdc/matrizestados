@@ -54,19 +54,17 @@
                     Resultado de Búsqueda para Ficha: <span id="fichaResult" class="ml-2 bg-blue-100 px-3 py-1 rounded-full text-blue-800 text-xl"></span>
                 </h2>
 
+                <!-- Cliente -->
+                <div class="mb-4 pt-2 border-t border-blue-200">
+                    <p class="text-sm font-medium text-gray-700">Cliente:</p>
+                    <p id="clientName" class="text-2xl font-extrabold text-gray-900 mt-1"></p>
+                </div>
+
                 <!-- Estado Actual: (Negro Fuerte) -->
                 <div class="mb-4">
                     <p class="text-sm font-medium text-gray-700">Estado Actual:</p>
                     <p id="currentStatus" class="text-2xl font-extrabold text-gray-900 mt-1"></p>
                 </div>
-
-                <!-- Historial de Etapas (ELIMINADO)
-                <div>
-                    <p class="text-sm font-medium text-gray-700 mb-3">Historial de Etapas:</p>
-                    <ul id="stageHistory" class="space-y-3">
-                    </ul>
-                </div>
-                -->
             </div>
 
             <!-- Mensaje de No Encontrado -->
@@ -91,6 +89,8 @@
         const resultsPanel = document.getElementById('resultsPanel');
         const notFoundMessage = document.getElementById('notFoundMessage');
         const statusMessage = document.getElementById('status-message');
+        // Elemento para el cliente
+        const clientNameElement = document.getElementById('clientName');
 
         let data = [];
         let headers = [];
@@ -98,24 +98,8 @@
         // Clave estandarizada para la búsqueda.
         const FICHA_KEY = 'N de Ficha';
         
-        // Nombres de las columnas de etapas (Se mantiene la lista solo para referencia, aunque ya no se usa para historial)
-        const STAGE_COLUMNS = [
-            "Ingreso",
-            "Desarme",
-            "Cotización",
-            "Confirmado",
-            "En proceso de Armado",
-            "Armado listo",
-            "Probado o OK",
-            "Probado vuelve al taller",
-            "Listo para entregar",
-            "Entregado",
-            "Estado" // La columna clave para el estado actual
-        ];
-        
-        // Lista de etapas reales que deben aparecer en el historial (excluyendo "Estado")
-        const PROCESS_STAGES = STAGE_COLUMNS.slice(0, STAGE_COLUMNS.length - 1); 
-
+        // La clave estandarizada para el cliente
+        const CLIENTE_KEY = 'Cliente';
 
         /**
          * Inicializa la aplicación, descarga los datos y habilita el botón de búsqueda.
@@ -182,7 +166,7 @@
 
         /**
          * Parsea el texto CSV en un arreglo de objetos de manera robusta.
-         * La Columna A (Index 0) se asume como el Número de Ficha, sin importar su encabezado.
+         * La Columna A (Index 0) se asume como el Número de Ficha, y la Columna B (Index 1) como el Cliente.
          * @param {string} csvText - El contenido CSV como texto.
          */
         function parseCSV(csvText) {
@@ -190,12 +174,13 @@
             const lines = csvText.split('\n').filter(line => line.trim() !== '');
             if (lines.length < 2) return; // Necesita encabezado y al menos una fila de datos
 
-            // 1. Limpieza de encabezados: se divide por coma y se limpian caracteres extraños.
+            // 1. Limpieza de encabezados
             headers = lines[0].split(',').map(h => h.trim().replace(/['"\r]/g, ''));
             data = [];
 
-            // La clave de la Ficha siempre es la Columna 0
+            // Índices fijos (basado en la estructura de tu hoja de cálculo)
             const FICHA_INDEX = 0; 
+            const CLIENTE_INDEX = 1; 
             
             // Procesar las líneas de datos (a partir de la línea 1)
             for (let i = 1; i < lines.length; i++) {
@@ -212,13 +197,20 @@
                         // Almacenar el valor de la ficha bajo el nombre estandarizado 'N de Ficha'
                         row[FICHA_KEY] = fichaValue;
                         
-                        // 2. Asignar los demás valores a las claves del encabezado
+                        // ** CORRECCIÓN: Usar índice fijo para Cliente (Columna B, Índice 1) **
+                        const clienteValue = (values.length > CLIENTE_INDEX) ? values[CLIENTE_INDEX] : '';
+                        row[CLIENTE_KEY] = clienteValue;
+
+                        // 3. Asignar los demás valores a las claves del encabezado
                         for (let j = 0; j < headers.length; j++) {
                             const cleanHeader = headers[j];
                             // Asegurarse de que el encabezado no esté vacío y que exista un valor para esa columna
                             if (cleanHeader && j < values.length) {
-                                // Usar el valor limpio de la celda
-                                row[cleanHeader] = values[j]; 
+                                // Solo almacenar si no hemos sobrescrito ya con las claves fijas (Cliente)
+                                if (j !== CLIENTE_INDEX) { 
+                                    // Usar el valor limpio de la celda
+                                    row[cleanHeader] = values[j]; 
+                                }
                             }
                         }
                         
@@ -248,7 +240,6 @@
             }
 
             // 2. Búsqueda: compara la cadena limpia con el valor almacenado limpio.
-            // Usa la clave estandarizada FICHA_KEY.
             const row = data.find(item => item[FICHA_KEY] === fichaNum);
 
             if (row) {
@@ -277,10 +268,12 @@
          */
         function displayResults(fichaNum, row) {
             document.getElementById('fichaResult').textContent = fichaNum;
+            
+            // Mostrar el nombre del cliente usando la clave fija CLIENTE_KEY
+            clientNameElement.textContent = row[CLIENTE_KEY] || 'Desconocido';
+
             // Usamos la columna 'Estado' para el estado actual
             document.getElementById('currentStatus').textContent = row['Estado'] || 'Desconocido';
-
-            // Ya no necesitamos inyectar elementos en stageHistory
 
             // Mostrar el panel de resultados
             resultsPanel.classList.remove('hidden');
